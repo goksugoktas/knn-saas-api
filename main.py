@@ -7,7 +7,7 @@ from sklearn.neighbors import KNeighborsClassifier
 import io
 from typing import List, Dict, Any
 
-# --- SWAGGER GÖRÜNÜM AYARLARI ---
+# --- ORİJİNAL STANDART AÇIKLAMA METNİ ---
 description = """
 **KNN Klasik Sınıflandırma SaaS API** etiketli veri setlerinizi yükleyerek K-En Yakın Komşu algoritmasıyla modeller kurmanızı sağlar. 🛠️
 
@@ -17,12 +17,14 @@ description = """
 3. **Tahmin (`/predict`):** Modelin eğitildiği özellik sırasına uygun olarak yeni veri gönderin, sınıfı ve en yakın komşuları görün.
 """
 
+# CRITICAL BULUT FIX: Tasarım yok, sadece 404 hatasını çözen yönlendirme var
 app = FastAPI(
     title="KNN Classifier SaaS System",
     description=description,
     version="1.0.0",
     docs_url=None, 
-    redoc_url=None
+    redoc_url=None,
+    openapi_url="/openapi.json"
 )
 
 # 1. MERKEZİ VERİ DEPOLAMA (STATEFUL STORAGE)
@@ -42,26 +44,15 @@ class ConfigParams(BaseModel):
 class PredictionInput(BaseModel):
     features: Dict[str, float] = Field(..., description="Özellik isimleri ve değerlerini içeren JSON obje. Örn: {'feature1': 2.5, 'feature2': 4.1}")
 
-# --- ÖZEL SWAGGER UI CSS TASARIMI ---
+# --- STANDART/ORİJİNAL SWAGGER UI ARAYÜZÜ ---
 @app.get("/docs", include_in_schema=False)
 async def custom_swagger_ui_html():
-    custom_style = """
-        <style>
-            .swagger-ui .topbar { display: none; }
-            .swagger-ui .info .title { color: #1e3a8a !important; }
-            .swagger-ui .opblock-tag { color: #1e3a8a !important; border-bottom: 2px solid #3b82f6 !important; }
-            .swagger-ui .opblock.opblock-post { background: rgba(59, 130, 246, 0.05) !important; border-color: #3b82f6 !important; }
-            .swagger-ui .opblock.opblock-post .opblock-summary-method { background: #3b82f6 !important; }
-            .swagger-ui .btn.execute { background-color: #1e3a8a !important; color: white !important; }
-        </style>
-    """
-    response = get_swagger_ui_html(
-        openapi_url=app.openapi_url,
+    # CSS kodları tamamen temizlendi, orijinal Swagger UI çağrılıyor
+    return get_swagger_ui_html(
+        openapi_url="/openapi.json",
         title=app.title,
         swagger_favicon_url="https://fastapi.tiangolo.com/img/favicon.png"
     )
-    new_content = response.body.decode().replace("</head>", f"{custom_style}</head>")
-    return HTMLResponse(content=new_content)
 
 # 3. ENDPOINTLER 
 
@@ -75,7 +66,6 @@ def home():
 # ENDPOINT 1: Veri Kümesi Yükleme
 @app.post("/dataset/upload", tags=["Veri Yönetimi"])
 async def upload_dataset(file: UploadFile = File(...)):
-    # Dosya uzantısı kontrolü düzeltildi (file.filename)
     if not file.filename.endswith('.csv'):
         raise HTTPException(status_code=400, detail="Lütfen geçerli bir CSV dosyası yükleyin.")
     
@@ -85,12 +75,9 @@ async def upload_dataset(file: UploadFile = File(...)):
         if df.shape[1] < 2:
             raise HTTPException(status_code=400, detail="Veri seti en az bir özellik ve bir etiket kolonu içermelidir.")
         
-        # Dinamik özellik ve hedef ayırımı (Son kolon target kabul edilir)
         storage["df"] = df
         storage["feature_names"] = df.columns[:-1].tolist()
         storage["target_name"] = df.columns[-1]
-        
-        # Model her yeni veri yüklendiğinde sıfırlanır
         storage["model"] = None 
         
         return {
@@ -109,7 +96,6 @@ async def configure_model(params: ConfigParams):
     if storage["df"] is None:
         raise HTTPException(status_code=400, detail="Hata: Model eğitilmeden önce /dataset/upload adresinden veri yüklenmelidir.")
     
-    # Mesafe metrik kısıtı kontrolü (Ödev isterleri doğrultusunda)
     if params.metric.lower() not in ["euclidean", "manhattan", "minkowski"]:
         raise HTTPException(status_code=400, detail="Desteklenen metrikler: 'euclidean', 'manhattan', 'minkowski'")
 
@@ -117,7 +103,6 @@ async def configure_model(params: ConfigParams):
         X = storage["df"][storage["feature_names"]]
         y = storage["df"][storage["target_name"]]
         
-        # Sınır kontrolü: K değeri veri sayısından büyük olamaz
         k_value = min(params.k, len(X))
         
         knn = KNeighborsClassifier(n_neighbors=k_value, metric=params.metric.lower(), weights=params.weights)
@@ -143,24 +128,17 @@ async def predict(input_data: PredictionInput):
         raise HTTPException(status_code=400, detail="Hata: Tahmin yapabilmek için önce model eğitilmelidir.")
     
     try:
-        # Gelen veriyi dataframe formatına dönüştürme
         input_dict = input_data.features
         
-        # Eksik kolon kontrolü
         missing_cols = [col for col in storage["feature_names"] if col not in input_dict]
         if missing_cols:
             raise HTTPException(status_code=400, detail=f"Eksik özellik verisi gönderildi. Gerekli kolonlar: {missing_cols}")
         
-        # Özellikleri doğru sırada dataframe'e dönüştür
         input_df = pd.DataFrame([input_dict])[storage["feature_names"]]
-        
-        # 1. Sınıf Tahmini
         prediction = storage["model"].predict(input_df)[0]
         
-        # 2. En Yakın K Komşuyu Bulma (İsterler doğrultusunda eklenen kısım)
         distances, indices = storage["model"].kneighbors(input_df)
         
-        # Komşu detaylarını rapora uygun hazırlama
         neighbors_list = []
         for idx, dist in zip(indices[0], distances[0]):
             neighbor_row = storage["df"].iloc[idx].to_dict()
@@ -180,4 +158,4 @@ async def predict(input_data: PredictionInput):
         raise http_ex
     except Exception as e:
         print(f"Sistem Hatası: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Tahmin işlemi esnasında bir hata meydana geldi: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Tahmin işlem esnasında bir hata meydana geldi: {str(e)}")
