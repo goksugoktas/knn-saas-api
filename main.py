@@ -47,7 +47,7 @@ async def custom_swagger_ui_html():
 def home():
     return {"durum": "Aktif", "mesaj": "Sistem aktif. /docs adresine gidin."}
 
-# ENDPOINT 1: Veri Kümesi Yükleme (AKILLI FİLTRELEME EKLENDİ)
+# ENDPOINT 1: Veri Kümesi Yükleme
 @app.post("/dataset/upload", tags=["Veri Yönetimi"])
 async def upload_dataset(file: UploadFile = File(...)):
     if not file.filename.endswith('.csv'):
@@ -57,20 +57,15 @@ async def upload_dataset(file: UploadFile = File(...)):
     try:
         raw_df = pd.read_csv(io.BytesIO(content))
         
-        # HEDEF ETİKET: Orijinal dosyadaki en son kolonu alıyoruz (RNF)
         target_col = raw_df.columns[-1]
-        y_series = raw_df[target_col]
         
-        # ÖZELLİKLER: İlk kolonları alıp, içlerinden sayısal OLMAYANLARI (text) eliyoruz
         feature_candidates = raw_df.columns[:-1].tolist()
         clean_features = []
         
         for col in feature_candidates:
-            # Eğer kolon sayısal ise (int veya float) listeye ekle
             if pd.api.types.is_numeric_dtype(raw_df[col]):
                 clean_features.append(col)
         
-        # Sadece temizlenmiş sayısal özellikleri ve hedefi içeren yeni bir dataframe oluşturuyoruz
         df = raw_df[clean_features + [target_col]].copy()
         
         storage["df"] = df
@@ -113,7 +108,7 @@ async def configure_model(params: ConfigParams):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Model eğitim hatası: {str(e)}")
 
-# ENDPOINT 3: Tahminleme
+# ENDPOINT 3: Tahminleme (GİRİNTİLER VE RETURN BLOKLARI DÜZELTİLDİ)
 @app.post("/predict", tags=["Tahminleme (Predict)"])
 async def predict(input_data: PredictionInput):
     if storage["model"] is None:
@@ -139,8 +134,11 @@ async def predict(input_data: PredictionInput):
             })
             
         return {
-    "tahmin_edilen_sinif": str(prediction),  # Artık 'high', 'medium' değerlerini hatasız basar!
-    "en_yakin_komsu_sayisi": len(neighbors_list),
-    "en_yakin_komsular": neighbors_list
-}
+            "tahmin_edilen_sinif": str(prediction),
+            "en_yakin_komsu_sayisi": len(neighbors_list),
+            "en_yakin_komsular": neighbors_list
+        }
     except HTTPException as http_ex:
+        raise http_ex
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Tahmin hatası: {str(e)}")
