@@ -139,8 +139,8 @@ async def predict(input_data: PredictionInput):
             })
             
         return {
-            "tahmin_edilen_sinif": int(prediction),
-            "en_yakin_komsu_sayisi": len(neighbors_list),
-            "en_yakin_komsular": neighbors_list
-        }
+    "tahmin_edilen_sinif": str(prediction),  # Artık 'high', 'medium' değerlerini hatasız basar!
+    "en_yakin_komsu_sayisi": len(neighbors_list),
+    "en_yakin_komsular": neighbors_list
+}
     except HTTPException as http_ex:
